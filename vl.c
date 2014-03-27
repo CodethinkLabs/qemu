@@ -122,6 +122,7 @@ int main(int argc, char **argv)
 #include "qapi-event.h"
 #include "exec/semihost.h"
 #include "crypto/init.h"
+#include "qemu-common.h"
 
 #define MAX_VIRTIO_CONSOLES 1
 #define MAX_SCLP_CONSOLES 1
@@ -3347,6 +3348,9 @@ int main(int argc, char **argv, char **envp)
                 break;
             case QEMU_OPTION_D:
                 log_file = optarg;
+                break;
+            case QEMU_OPTION_PERFMAP:
+                tb_enable_perfmap();
                 break;
             case QEMU_OPTION_s:
                 add_device_config(DEV_GDB, "tcp::" DEFAULT_GDBSTUB_PORT);
