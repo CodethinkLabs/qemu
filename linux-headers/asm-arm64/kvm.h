@@ -100,10 +100,28 @@ struct kvm_sregs {
 struct kvm_fpu {
 };
 
+/*
+ * See v8 ARM ARM D7.3: Debug Registers
+ *
+ * The control registers are architecturally defined as 32 bits but are
+ * stored as 64 bit values alongside the value registers. This is done
+ * to keep the copying of these values into the vcpu context simple as
+ * everything is 64 bit aligned (see DBGBCR0_EL1 onwards in kvm_asm.h).
+ *
+ * The architectural limit is 16 debug registers of each type although
+ * in practice there are usually less (see ID_AA64DFR0_EL1).
+ */
+#define KVM_ARM_MAX_DBG_REGS 16
 struct kvm_guest_debug_arch {
+	__u64 dbg_bcr[KVM_ARM_MAX_DBG_REGS];
+	__u64 dbg_bvr[KVM_ARM_MAX_DBG_REGS];
+	__u64 dbg_wcr[KVM_ARM_MAX_DBG_REGS];
+	__u64 dbg_wvr[KVM_ARM_MAX_DBG_REGS];
 };
 
 struct kvm_debug_exit_arch {
+	__u32 hsr;
+	__u64 far;	/* used for watchpoints */
 };
 
 struct kvm_sync_regs {
@@ -188,8 +206,15 @@ struct kvm_arch_memory_slot {
 #define KVM_ARM_IRQ_CPU_IRQ		0
 #define KVM_ARM_IRQ_CPU_FIQ		1
 
-/* Highest supported SPI, from VGIC_NR_IRQS */
+/*
+ * This used to hold the highest supported SPI, but it is now obsolete
+ * and only here to provide source code level compatibility with older
+ * userland. The highest SPI number can be set via KVM_DEV_ARM_VGIC_GRP_NR_IRQS.
+ */
 #define KVM_ARM_IRQ_GIC_MAX		127
+
+/* One single KVM irqchip, ie. the VGIC */
+#define KVM_NR_IRQCHIPS          1
 
 /* PSCI interface */
 #define KVM_PSCI_FN_BASE		0x95c1ba5e
@@ -206,5 +231,12 @@ struct kvm_arch_memory_slot {
 #define KVM_PSCI_RET_DENIED		PSCI_RET_DENIED
 
 #endif
+
+/*
+ * Architecture related debug defines - upper 16 bits of
+ * kvm_guest_debug->control
+ */
+#define KVM_GUESTDBG_USE_SW_BP	        __KVM_GUESTDBG_USE_SW_BP
+#define KVM_GUESTDBG_USE_HW_BP		__KVM_GUESTDBG_USE_HW_BP
 
 #endif /* __ARM_KVM_H__ */
