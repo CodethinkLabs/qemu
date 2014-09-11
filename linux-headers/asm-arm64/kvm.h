@@ -100,10 +100,25 @@ struct kvm_sregs {
 struct kvm_fpu {
 };
 
+/*
+ * See ARM ARM D7.3: Debug Registers
+ *
+ * The control registers are architecturally defined as 32 bits but are
+ * stored as 64 bit values along side the value registers and aligned
+ * with the rest 64 bit registers in the normal CPU context.
+ */
+#define KVM_ARM_NDBG_REGS 16
 struct kvm_guest_debug_arch {
+	__u64 dbg_bcr[KVM_ARM_NDBG_REGS];
+	__u64 dbg_bvr[KVM_ARM_NDBG_REGS];
+	__u64 dbg_wcr[KVM_ARM_NDBG_REGS];
+	__u64 dbg_wvr[KVM_ARM_NDBG_REGS];
 };
 
 struct kvm_debug_exit_arch {
+	__u64 pc;
+	__u32 hsr;
+	__u64 far;	/* used for watchpoints */
 };
 
 struct kvm_sync_regs {
@@ -206,5 +221,12 @@ struct kvm_arch_memory_slot {
 #define KVM_PSCI_RET_DENIED		PSCI_RET_DENIED
 
 #endif
+
+/*
+ * Architecture related debug defines - upper 16 bits of
+ * kvm_guest_debug->control
+ */
+#define KVM_GUESTDBG_USE_SW_BP	        __KVM_GUESTDBG_USE_SW_BP
+#define KVM_GUESTDBG_USE_HW_BP		__KVM_GUESTDBG_USE_HW_BP
 
 #endif /* __ARM_KVM_H__ */

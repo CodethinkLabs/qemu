@@ -226,6 +226,7 @@ struct kvm_run {
 			__u32 count;
 			__u64 data_offset; /* relative to kvm_run start */
 		} io;
+		/* KVM_EXIT_DEBUG */
 		struct {
 			struct kvm_debug_exit_arch arch;
 		} debug;
@@ -274,6 +275,7 @@ struct kvm_run {
 			__u32 data;
 			__u8  is_write;
 		} dcr;
+		/* KVM_EXIT_INTERNAL_ERROR */
 		struct {
 			__u32 suberror;
 			/* Available with KVM_CAP_INTERNAL_ERROR_DATA: */
@@ -284,6 +286,7 @@ struct kvm_run {
 		struct {
 			__u64 gprs[32];
 		} osi;
+		/* KVM_EXIT_PAPR_HCALL */
 		struct {
 			__u64 nr;
 			__u64 ret;
@@ -522,8 +525,16 @@ struct kvm_s390_irq {
 
 /* for KVM_SET_GUEST_DEBUG */
 
-#define KVM_GUESTDBG_ENABLE		0x00000001
-#define KVM_GUESTDBG_SINGLESTEP		0x00000002
+#define KVM_GUESTDBG_ENABLE		(1 << 0)
+#define KVM_GUESTDBG_SINGLESTEP	(1 << 1)
+
+/*
+ * Architecture specific stuff uses the top 16 bits of the field,
+ * however there is some shared commonality for the common cases
+ */
+#define __KVM_GUESTDBG_USE_SW_BP	(1 << 16)
+#define __KVM_GUESTDBG_USE_HW_BP	(1 << 17)
+
 
 struct kvm_guest_debug {
 	__u32 control;
@@ -760,6 +771,8 @@ struct kvm_ppc_smmu_info {
 #define KVM_CAP_PPC_ENABLE_HCALL 104
 #define KVM_CAP_CHECK_EXTENSION_VM 105
 #define KVM_CAP_S390_USER_SIGP 106
+#define KVM_CAP_GUEST_DEBUG_HW_BPS 107
+#define KVM_CAP_GUEST_DEBUG_HW_WPS 108
 
 #ifdef KVM_CAP_IRQ_ROUTING
 
