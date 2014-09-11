@@ -475,6 +475,7 @@ void kvm_arch_post_run(CPUState *cs, struct kvm_run *run)
 */
 
 #define HSR_EC_SHIFT            26
+#define HSR_EC_SOFT_STEP        0x32
 #define HSR_EC_SW_BKPT          0x3c
 
 static int kvm_handle_debug(CPUState *cs, struct kvm_run *run)
@@ -483,6 +484,13 @@ static int kvm_handle_debug(CPUState *cs, struct kvm_run *run)
     int hsr_ec = arch_info->hsr >> HSR_EC_SHIFT;
 
     switch (hsr_ec) {
+    case HSR_EC_SOFT_STEP:
+        if (cs->singlestep_enabled) {
+            return true;
+        } else {
+            error_report("Came out of SINGLE STEP when not enabled");
+        }
+        break;
     case HSR_EC_SW_BKPT:
         if (kvm_find_sw_breakpoint(cs, arch_info->pc)) {
             return true;
@@ -542,6 +550,9 @@ int kvm_arch_on_sigbus(int code, void *addr)
 
 void kvm_arch_update_guest_debug(CPUState *cs, struct kvm_guest_debug *dbg)
 {
+    if (cs->singlestep_enabled) {
+        dbg->control |= KVM_GUESTDBG_ENABLE | KVM_GUESTDBG_SINGLESTEP;
+    }
     if (kvm_sw_breakpoints_active(cs)) {
         dbg->control |= KVM_GUESTDBG_ENABLE | KVM_GUESTDBG_USE_SW_BP;
     }
