@@ -307,11 +307,9 @@ struct kvm_guest_debug_arch {
 /* Debug related defines */
 /*
  * kvm_guest_debug->control is a 32 bit field. The lower 16 bits are generic
- * and upper 16 bits are architecture specific. Architecture specific defines
+ * and upper 14 bits are architecture specific. Architecture specific defines
  * that ioctl is for setting hardware breakpoint or software breakpoint.
  */
-#define KVM_GUESTDBG_USE_SW_BP		0x00010000
-#define KVM_GUESTDBG_USE_HW_BP		0x00020000
 
 /* definition of registers in kvm_run */
 struct kvm_sync_regs {
