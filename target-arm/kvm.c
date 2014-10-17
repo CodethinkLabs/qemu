@@ -17,6 +17,7 @@
 
 #include "qemu-common.h"
 #include "qemu/timer.h"
+#include "qemu/error-report.h"
 #include "sysemu/sysemu.h"
 #include "sysemu/kvm.h"
 #include "kvm_arm.h"
@@ -476,6 +477,8 @@ void kvm_arch_post_run(CPUState *cs, struct kvm_run *run)
 
 #define HSR_EC_SHIFT            26
 #define HSR_EC_SOFT_STEP        0x32
+#define HSR_EC_HW_BKPT          0x30
+#define HSR_EC_HW_WATCH         0x34
 #define HSR_EC_SW_BKPT          0x3c
 
 static int kvm_handle_debug(CPUState *cs, struct kvm_run *run)
@@ -493,6 +496,16 @@ static int kvm_handle_debug(CPUState *cs, struct kvm_run *run)
         break;
     case HSR_EC_SW_BKPT:
         if (kvm_find_sw_breakpoint(cs, arch_info->pc)) {
+            return true;
+        }
+        break;
+    case HSR_EC_HW_BKPT:
+        if (kvm_arm_find_hw_breakpoint(cs, arch_info->pc)) {
+            return true;
+        }
+        break;
+    case HSR_EC_HW_WATCH:
+        if (kvm_arm_find_hw_watchpoint(cs, arch_info->far)) {
             return true;
         }
         break;
@@ -556,6 +569,10 @@ void kvm_arch_update_guest_debug(CPUState *cs, struct kvm_guest_debug *dbg)
     if (kvm_sw_breakpoints_active(cs)) {
         dbg->control |= KVM_GUESTDBG_ENABLE | KVM_GUESTDBG_USE_SW_BP;
     }
+    if (kvm_hw_breakpoints_active(cs)) {
+        dbg->control |= KVM_GUESTDBG_ENABLE | KVM_GUESTDBG_USE_HW_BP;
+        kvm_copy_hw_breakpoint_data(&dbg->arch);
+    }
 }
 
 /* C6.6.29 BRK instruction */
@@ -580,26 +597,6 @@ int kvm_arch_remove_sw_breakpoint(CPUState *cs, struct kvm_sw_breakpoint *bp)
         return -EINVAL;
     }
     return 0;
-}
-
-int kvm_arch_insert_hw_breakpoint(target_ulong addr,
-                                  target_ulong len, int type)
-{
-    qemu_log_mask(LOG_UNIMP, "%s: not implemented\n", __func__);
-    return -EINVAL;
-}
-
-int kvm_arch_remove_hw_breakpoint(target_ulong addr,
-                                  target_ulong len, int type)
-{
-    qemu_log_mask(LOG_UNIMP, "%s: not implemented\n", __func__);
-    return -EINVAL;
-}
-
-
-void kvm_arch_remove_all_hw_breakpoints(void)
-{
-    qemu_log_mask(LOG_UNIMP, "%s: not implemented\n", __func__);
 }
 
 void kvm_arch_init_irq_routing(KVMState *s)
