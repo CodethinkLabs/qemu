@@ -179,6 +179,27 @@ int kvm_arm_sync_mpstate_to_kvm(ARMCPU *cpu);
  */
 int kvm_arm_sync_mpstate_to_qemu(ARMCPU *cpu);
 
+bool kvm_hw_breakpoints_active(CPUState *cs);
+void kvm_copy_hw_breakpoint_data(struct kvm_guest_debug_arch *ptr);
+
+/**
+ * kvm_arm_find_hw_breakpoint:
+ * @cpu: CPUState
+ * @pc: pc of breakpoint
+ *
+ * Return TRUE if the pc matches one of our breakpoints.
+ */
+bool kvm_arm_find_hw_breakpoint(CPUState *cpu, target_ulong pc);
+
+/**
+ * kvm_arm_find_hw_watchpoint:
+ * @cpu: CPUState
+ * @addr: address of watchpoint
+ *
+ * Return TRUE if the addr matches one of our watchpoints.
+ */
+bool kvm_arm_find_hw_watchpoint(CPUState *cpu, target_ulong addr);
+
 #endif
 
 #endif
