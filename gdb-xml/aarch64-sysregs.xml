@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2015 Linaro Ltd.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.
+
+     The system registers here are banked and some exist for el2 (hyp) and
+     el3 (secure) modes in the TCG world. However this would entail building
+     up the XML manually depending on supported features. Currently we only
+     include guest registers relevant to guest debugging. -->
+
+<!DOCTYPE feature SYSTEM "gdb-target.dtd">
+<feature name="org.gnu.gdb.aarch64.sysregs">
+  <!-- Banked SPs -->
+  <reg name="sp_el0" bitsize="64" type="data_ptr"/>
+  <reg name="sp_el1" bitsize="64" type="data_ptr"/>
+  <!-- Banked ELRs -->
+  <reg name="elr_el1" bitsize="64" type="code_ptr"/>
+  <!-- Banked SPSRs -->
+  <reg name="spsr_el1" bitsize="64" type="uint64"/>
+  <!-- Debug Registers -->
+  <reg name="mdscr_el1" bitsize="64" type="uint64"/>
+  <!-- Other CP15 regs -->
+  <reg name="esr_el1" bitsize="64" type="uint64"/>
+  <reg name="contextidr_el1" bitsize="32" type="uint32"/>
+</feature>

@@ -118,6 +118,45 @@ static int aarch64_fpu_gdb_set_reg(CPUARMState *env, uint8_t *buf, int reg)
     }
 }
 
+static int aarch64_sysregs_gdb_get_reg(CPUARMState *env, uint8_t *buf, int reg)
+{
+    switch (reg) {
+    case 0: /* SP_EL0 */
+        stq_p(buf, env->sp_el[0]);
+        return 8;
+    case 1: /* SP_EL1 */
+        stq_p(buf, env->sp_el[1]);
+        return 8;
+    case 2: /* ELR_EL1 */
+        stq_p(buf, env->elr_el[1]);
+        return 8;
+    case 3: /* SPSR_EL1 */
+        stq_p(buf, env->banked_spsr[1]);
+        return 8;
+    case 4: /* MDSCR_EL1 */
+        stq_p(buf, env->cp15.mdscr_el1);
+        return 8;
+    case 5: /* ESR_EL1 */
+        stq_p(buf, env->cp15.esr_el[1]);
+        return 8;
+    case 6: /* CONTEXTIDR_EL1 */
+        stl_p(buf, env->cp15.contextidr_el[1]);
+        return 4;
+    default:
+        fprintf(stderr,"%s: reg %d\n", __func__, reg);
+        return 0;
+    }
+}
+
+static int aarch64_sysregs_gdb_set_reg(CPUARMState *env, uint8_t *buf, int reg)
+{
+    fprintf(stderr,"%s: reg %d\n", __func__, reg);
+    switch (reg) {
+    default:
+        return 0;
+    }
+}
+
 static uint64_t raw_read(CPUARMState *env, const ARMCPRegInfo *ri)
 {
     assert(ri->fieldoffset);
@@ -3665,6 +3704,9 @@ void arm_cpu_register_gdb_regs_for_features(ARMCPU *cpu)
         gdb_register_coprocessor(cs, aarch64_fpu_gdb_get_reg,
                                  aarch64_fpu_gdb_set_reg,
                                  34, "aarch64-fpu.xml", 0);
+        gdb_register_coprocessor(cs, aarch64_sysregs_gdb_get_reg,
+                                 aarch64_sysregs_gdb_set_reg,
+                                 6, "aarch64-sysregs.xml", 0);
     } else if (arm_feature(env, ARM_FEATURE_NEON)) {
         gdb_register_coprocessor(cs, vfp_gdb_get_reg, vfp_gdb_set_reg,
                                  51, "arm-neon.xml", 0);
