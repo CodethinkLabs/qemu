@@ -25,6 +25,22 @@
 #include "internals.h"
 #include "hw/arm/arm.h"
 
+static bool have_guest_debug;
+
+/**
+ * kvm_arm_init_debug()
+ * @cs: CPUState
+ *
+ * Check for guest debug capabilities.
+ *
+ */
+static void kvm_arm_init_debug(CPUState *cs)
+{
+    have_guest_debug = kvm_check_extension(cs->kvm_state,
+                                           KVM_CAP_SET_GUEST_DEBUG);
+    return;
+}
+
 static inline void set_feature(uint64_t *features, int feature)
 {
     *features |= 1ULL << feature;
@@ -121,6 +137,8 @@ int kvm_arch_init_vcpu(CPUState *cs)
         return ret;
     }
     cpu->mp_affinity = mpidr & ARM_MPIDR_HWID_BITMASK;
+
+    kvm_arm_init_debug(cs);
 
     return kvm_arm_init_cpreg_list(cpu);
 }
