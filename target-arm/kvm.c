@@ -525,9 +525,11 @@ static int kvm_handle_debug(CPUState *cs, struct kvm_run *run)
     struct kvm_debug_exit_arch *arch_info = &run->debug.arch;
     int hsr_ec = arch_info->hsr >> ARM_EL_EC_SHIFT;
     ARMCPU *cpu = ARM_CPU(cs);
+    CPUClass *cc = CPU_GET_CLASS(cs);
     CPUARMState *env = &cpu->env;
+    int forward_excp = EXCP_BKPT;
 
-    /* Ensure PC is synchronised */
+    /* Ensure all state is synchronised */
     kvm_cpu_synchronize_state(cs);
 
     switch (hsr_ec) {
@@ -535,7 +537,14 @@ static int kvm_handle_debug(CPUState *cs, struct kvm_run *run)
         if (cs->singlestep_enabled) {
             return true;
         } else {
-            error_report("Came out of SINGLE STEP when not enabled");
+            /*
+             * The kernel should have supressed the guests ability to
+             * single step at this point so something has gone wrong.
+             */
+            error_report("%s: guest single-step while debugging unsupported"
+                         " (%"PRIx64", %"PRIx32")\n",
+                         __func__, env->pc, arch_info->hsr);
+            return false;
         }
         break;
     case EC_AA64_BKPT:
@@ -551,19 +560,24 @@ static int kvm_handle_debug(CPUState *cs, struct kvm_run *run)
     case EC_WATCHPOINT:
         if (kvm_arm_find_hw_watchpoint(cs, arch_info->far)) {
             return true;
+        } else {
+            forward_excp = EXCP_WAPT;
         }
         break;
     default:
         error_report("%s: unhandled debug exit (%"PRIx32", %"PRIx64")\n",
                      __func__, arch_info->hsr, env->pc);
+        return false;
     }
 
-    /* If we don't handle this it could be it really is for the
-       guest to handle */
-    qemu_log_mask(LOG_UNIMP,
-                  "%s: re-injecting exception not yet implemented"
-                  " (0x%"PRIx32", %"PRIx64")\n",
-                  __func__, hsr_ec, env->pc);
+    /* If we are not handling the debug exception it must belong to
+     * the guest. Let's re-use the existing TCG interrupt code to set
+     * everything up properly
+     */
+    cs->exception_index = forward_excp;
+    env->exception.syndrome = arch_info->hsr;
+    env->exception.vaddress = arch_info->far;
+    cc->do_interrupt(cs);
 
     return false;
 }

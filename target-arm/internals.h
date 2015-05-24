@@ -58,6 +58,7 @@ static const char * const excnames[] = {
     [EXCP_SMC] = "Secure Monitor Call",
     [EXCP_VIRQ] = "Virtual IRQ",
     [EXCP_VFIQ] = "Virtual FIQ",
+    [EXCP_WAPT] = "Watchpoint",
 };
 
 static inline void arm_log_exception(int idx)
