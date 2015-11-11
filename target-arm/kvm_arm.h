@@ -249,8 +249,8 @@ bool kvm_arm_find_hw_breakpoint(CPUState *cpu, target_ulong pc);
  * @cpu: CPUState
  * @addr: address of watchpoint
  *
- * Return TRUE if the addr matches one of our watchpoints.
+ * Return the CPUWatchpoint structure the addr matches one of our watchpoints.
  */
-bool kvm_arm_find_hw_watchpoint(CPUState *cpu, target_ulong addr);
+CPUWatchpoint * kvm_arm_find_hw_watchpoint(CPUState *cpu, target_ulong addr);
 
 #endif

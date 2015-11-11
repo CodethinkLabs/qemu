@@ -561,10 +561,14 @@ static int kvm_handle_debug(CPUState *cs, struct kvm_run *run)
         }
         break;
     case EC_WATCHPOINT:
-        if (kvm_arm_find_hw_watchpoint(cs, arch_info->far)) {
+    {
+        CPUWatchpoint *wp = kvm_arm_find_hw_watchpoint(cs, arch_info->far);
+        if (wp) {
+            cs->watchpoint_hit = wp;
             return true;
         }
         break;
+    }
     default:
         error_report("%s: unhandled debug exit (%"PRIx32", %"PRIx64")\n",
                      __func__, arch_info->hsr, env->pc);

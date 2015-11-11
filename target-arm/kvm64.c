@@ -48,13 +48,30 @@ static bool have_guest_debug;
  * never know which core will eventually execute your function.
  */
 
-/* Max and current break/watch point counts */
-int max_hw_bp, max_hw_wp;
-int cur_hw_bp, cur_hw_wp;
+typedef struct {
+    uint64_t bcr;
+    uint64_t bvr;
+} HWBreakpoint;
 
-/* HW Debug Registers */
-struct kvm_guest_debug_arch guest_debug_registers;
-static CPUWatchpoint hw_watchpoints[KVM_ARM_MAX_DBG_REGS];
+/* The watchpoint registers can cover more area than the requested
+ * watchpoint so we need to store the additional information
+ * somewhere. We also need to supply a CPUWatchpoint to the GDB stub
+ * when the watchpoint is hit.
+ */
+typedef struct {
+    uint64_t wcr;
+    uint64_t wvr;
+    CPUWatchpoint details;
+} HWWatchpoint;
+
+/* Maximum and current break/watch point counts */
+int max_hw_bps, max_hw_wps;
+GArray *hw_breakpoints, *hw_watchpoints;
+
+#define cur_hw_wps      (hw_watchpoints->len)
+#define cur_hw_bps      (hw_breakpoints->len)
+#define get_hw_bp(i)    (&g_array_index(hw_breakpoints, HWBreakpoint, i))
+#define get_hw_wp(i)    (&g_array_index(hw_watchpoints, HWWatchpoint, i))
 
 /**
  * kvm_arm_init_debug() - check for guest debug capabilities
@@ -68,8 +85,14 @@ static void kvm_arm_init_debug(CPUState *cs)
 {
     have_guest_debug = kvm_check_extension(cs->kvm_state,
                                            KVM_CAP_SET_GUEST_DEBUG);
-    max_hw_wp = kvm_check_extension(cs->kvm_state, KVM_CAP_GUEST_DEBUG_HW_WPS);
-    max_hw_bp = kvm_check_extension(cs->kvm_state, KVM_CAP_GUEST_DEBUG_HW_BPS);
+
+    max_hw_wps = kvm_check_extension(cs->kvm_state, KVM_CAP_GUEST_DEBUG_HW_WPS);
+    hw_watchpoints = g_array_sized_new(true, true,
+                                       sizeof(HWWatchpoint), max_hw_wps);
+
+    max_hw_bps = kvm_check_extension(cs->kvm_state, KVM_CAP_GUEST_DEBUG_HW_BPS);
+    hw_breakpoints = g_array_sized_new(true, true,
+                                       sizeof(HWBreakpoint), max_hw_bps);
     return;
 }
 
@@ -98,15 +121,20 @@ static void kvm_arm_init_debug(CPUState *cs)
  */
 static int insert_hw_breakpoint(target_ulong addr)
 {
-    uint32_t bcr = 0x1; /* E=1, enable */
-    if (cur_hw_bp >= max_hw_bp) {
+    HWBreakpoint brk = {
+        .bcr = 0x1,                             /* BCR E=1, enable */
+        .bvr = addr
+    };
+
+    if (cur_hw_bps >= max_hw_bps) {
         return -ENOBUFS;
     }
-    bcr = deposit32(bcr, 1, 2, 0x3);   /* PMC = 11 */
-    bcr = deposit32(bcr, 5, 4, 0xf);   /* BAS = RES1 */
-    guest_debug_registers.dbg_bcr[cur_hw_bp] = bcr;
-    guest_debug_registers.dbg_bvr[cur_hw_bp] = addr;
-    cur_hw_bp++;
+
+    brk.bcr = deposit32(brk.bcr, 1, 2, 0x3);   /* PMC = 11 */
+    brk.bcr = deposit32(brk.bcr, 5, 4, 0xf);   /* BAS = RES1 */
+
+    g_array_append_val(hw_breakpoints, brk);
+
     return 0;
 }
 
@@ -120,23 +148,12 @@ static int insert_hw_breakpoint(target_ulong addr)
 static int delete_hw_breakpoint(target_ulong pc)
 {
     int i;
-    for (i = 0; i < cur_hw_bp; i++) {
-      if (guest_debug_registers.dbg_bvr[i] == pc) {
-          while (i < cur_hw_bp) {
-              if (i == max_hw_bp) {
-                  guest_debug_registers.dbg_bvr[i] = 0;
-                  guest_debug_registers.dbg_bcr[i] = 0;
-              } else {
-                  guest_debug_registers.dbg_bvr[i] =
-                      guest_debug_registers.dbg_bvr[i + 1];
-                  guest_debug_registers.dbg_bcr[i] =
-                      guest_debug_registers.dbg_bcr[i + 1];
-              }
-              i++;
-          }
-          cur_hw_bp--;
-          return 0;
-      }
+    for (i = 0; i < hw_breakpoints->len; i++) {
+        HWBreakpoint *brk = get_hw_bp(i);
+        if (brk->bvr == pc) {
+            g_array_remove_index(hw_breakpoints, i);
+            return 0;
+        }
     }
     return -ENOENT;
 }
@@ -176,10 +193,13 @@ static int delete_hw_breakpoint(target_ulong pc)
 static int insert_hw_watchpoint(target_ulong addr,
                                 target_ulong len, int type)
 {
-    uint32_t dbgwcr = 1; /* E=1, enable */
-    uint64_t dbgwvr = addr & (~0x7ULL);
+    HWWatchpoint wp = {
+        .wcr = 1, /* E=1, enable */
+        .wvr = addr & (~0x7ULL),
+        .details = { .vaddr = addr, .len = len}
+    };
 
-    if (cur_hw_wp >= max_hw_wp) {
+    if (cur_hw_wps >= max_hw_wps) {
         return -ENOBUFS;
     }
 
@@ -187,17 +207,20 @@ static int insert_hw_watchpoint(target_ulong addr,
      * HMC=0 SSC=0 PAC=3 will hit EL0 or EL1, any security state,
      * valid whether EL3 is implemented or not
      */
-    dbgwcr = deposit32(dbgwcr, 1, 2, 3);
+    wp.wcr = deposit32(wp.wcr, 1, 2, 3);
 
     switch (type) {
     case GDB_WATCHPOINT_READ:
-        dbgwcr = deposit32(dbgwcr, 3, 2, 1);
+        wp.wcr = deposit32(wp.wcr, 3, 2, 1);
+        wp.details.flags = BP_MEM_READ;
         break;
     case GDB_WATCHPOINT_WRITE:
-        dbgwcr = deposit32(dbgwcr, 3, 2, 2);
+        wp.wcr = deposit32(wp.wcr, 3, 2, 2);
+        wp.details.flags = BP_MEM_WRITE;
         break;
     case GDB_WATCHPOINT_ACCESS:
-        dbgwcr = deposit32(dbgwcr, 3, 2, 3);
+        wp.wcr = deposit32(wp.wcr, 3, 2, 3);
+        wp.details.flags = BP_MEM_ACCESS;
         break;
     default:
         g_assert_not_reached();
@@ -211,34 +234,32 @@ static int insert_hw_watchpoint(target_ulong addr,
 
         fprintf(stderr,"%s: len=%ld off=%d end=%d bas=0x%x\n", __func__, len, off, end, bas);
 
-/*         dbgwcr = deposit32(dbgwcr, 5 + off, 5 + end, ~0); */
-        dbgwcr = deposit32(dbgwcr, 5 + off, 8 - off, bas);
+/*         wp.wcr = deposit32(wp.wcr, 5 + off, 5 + end, ~0); */
+        wp.wcr = deposit32(wp.wcr, 5 + off, 8 - off, bas);
     } else {
         /* For ranges above 8 bytes we need to be a power of 2 */
         if (is_power_of_2(len)) {
             int bits = ctz64(len);
 
-            dbgwvr &= ~((1 << bits)-1);
-            dbgwcr = deposit32(dbgwcr, 24, 4, bits);
-            dbgwcr = deposit32(dbgwcr, 5, 8, 0xff);
+            wp.wvr &= ~((1 << bits)-1);
+            wp.wcr = deposit32(wp.wcr, 24, 4, bits);
+            wp.wcr = deposit32(wp.wcr, 5, 8, 0xff);
         } else {
             return -ENOBUFS;
         }
     }
 
-    guest_debug_registers.dbg_wcr[cur_hw_wp] = dbgwcr;
-    guest_debug_registers.dbg_wvr[cur_hw_wp] = dbgwvr;
-    cur_hw_wp++;
+    g_array_append_val(hw_watchpoints, wp);
     return 0;
 }
 
 
 static bool check_watchpoint_in_range(int i, target_ulong addr)
 {
-    uint32_t dbgwcr = guest_debug_registers.dbg_wcr[i];
-    uint64_t addr_top, addr_bottom = guest_debug_registers.dbg_wvr[i];
-    int bas = extract32(dbgwcr, 5, 8);
-    int mask = extract32(dbgwcr, 24, 4);
+    HWWatchpoint *wp = get_hw_wp(i);
+    uint64_t addr_top, addr_bottom = wp->wvr;
+    int bas = extract32(wp->wcr, 5, 8);
+    int mask = extract32(wp->wcr, 24, 4);
 
     if (mask) {
         addr_top = addr_bottom + (1 << mask);
@@ -267,21 +288,9 @@ static int delete_hw_watchpoint(target_ulong addr,
                                 target_ulong len, int type)
 {
     int i;
-    for (i = 0; i < cur_hw_wp; i++) {
+    for (i = 0; i < cur_hw_wps; i++) {
         if (check_watchpoint_in_range(i, addr)) {
-            while (i < cur_hw_wp) {
-                if (i == max_hw_wp) {
-                    guest_debug_registers.dbg_wvr[i] = 0;
-                    guest_debug_registers.dbg_wcr[i] = 0;
-                } else {
-                    guest_debug_registers.dbg_wvr[i] =
-                        guest_debug_registers.dbg_wvr[i + 1];
-                    guest_debug_registers.dbg_wcr[i] =
-                        guest_debug_registers.dbg_wcr[i + 1];
-                }
-                i++;
-            }
-            cur_hw_wp--;
+            g_array_remove_index(hw_watchpoints, i);
             return 0;
         }
     }
@@ -324,19 +333,32 @@ int kvm_arch_remove_hw_breakpoint(target_ulong addr,
 
 void kvm_arch_remove_all_hw_breakpoints(void)
 {
-    memset(&guest_debug_registers, 0, sizeof(guest_debug_registers));
-    cur_hw_bp = 0;
-    cur_hw_wp = 0;
+    if (cur_hw_wps > 0)
+        g_array_remove_range(hw_watchpoints, 0, cur_hw_wps);
+    if (cur_hw_bps > 0)
+        g_array_remove_range(hw_breakpoints, 0, cur_hw_bps);
 }
 
 void kvm_arm_copy_hw_debug_data(struct kvm_guest_debug_arch *ptr)
 {
-    memcpy(ptr, &guest_debug_registers, sizeof(guest_debug_registers));
+    int i;
+    memset(ptr, 0, sizeof(struct kvm_guest_debug_arch));
+
+    for (i=0; i<max_hw_wps; i++) {
+        HWWatchpoint *wp = get_hw_wp(i);
+        ptr->dbg_wcr[i] = wp->wcr;
+        ptr->dbg_wvr[i] = wp->wvr;
+    }
+    for (i=0; i<max_hw_bps; i++) {
+        HWBreakpoint *bp = get_hw_bp(i);
+        ptr->dbg_bcr[i] = bp->bcr;
+        ptr->dbg_bvr[i] = bp->bvr;
+    }
 }
 
 bool kvm_arm_hw_debug_active(CPUState *cs)
 {
-    return ((cur_hw_bp > 0) || (cur_hw_wp >0)) ? true:false;
+    return ((cur_hw_wps > 0) || (cur_hw_bps > 0)) ? true:false;
 }
 
 bool kvm_arm_find_hw_breakpoint(CPUState *cpu, target_ulong pc)
@@ -344,8 +366,9 @@ bool kvm_arm_find_hw_breakpoint(CPUState *cpu, target_ulong pc)
     if (kvm_arm_hw_debug_active(cpu)) {
         int i;
 
-        for (i=0; i<cur_hw_bp; i++) {
-            if (guest_debug_registers.dbg_bvr[i] == pc) {
+        for (i=0; i<cur_hw_bps; i++) {
+            HWBreakpoint *bp = get_hw_bp(i);
+            if (bp->bvr == pc) {
                 return true;
             }
         }
@@ -353,18 +376,18 @@ bool kvm_arm_find_hw_breakpoint(CPUState *cpu, target_ulong pc)
     return false;
 }
 
-bool kvm_arm_find_hw_watchpoint(CPUState *cpu, target_ulong addr)
+CPUWatchpoint * kvm_arm_find_hw_watchpoint(CPUState *cpu, target_ulong addr)
 {
     if (kvm_arm_hw_debug_active(cpu)) {
         int i;
 
-        for (i=0; i<cur_hw_wp; i++) {
+        for (i=0; i<cur_hw_wps; i++) {
             if (check_watchpoint_in_range(i, addr)) {
-                return true;
+                return &get_hw_wp(i)->details;
             }
         }
     }
-    return false;
+    return NULL;
 }
 
 
