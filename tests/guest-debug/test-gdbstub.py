@@ -6,16 +6,15 @@
 
 import gdb
 
+failcount = 0
 
-def report_or_exit(cond, msg):
-    "Report success test, or exit with error code"
+def report(cond, msg):
+    "Report success/fail of test"
     if cond:
         print "PASS: %s" % (msg)
     else:
         print "FAIL: %s" % (msg)
-        gdb.execute("kill")
-        exit(-1)
-
+        failcount += 1
 
 def check_step():
     "Step an instruction, check it moved."
@@ -67,7 +66,7 @@ class WatchPoint(gdb.Breakpoint):
         self.sym, ok = gdb.lookup_symbol(sym_name)
         wp_addr = gdb.parse_and_eval(sym_name).address
         self.wp_str = '*(%(type)s)(&%(address)s)' % dict(
-            type=wp_addr.type, address=sym_name)
+            type = wp_addr.type, address = sym_name)
 
         return(self.wp_str)
 
@@ -86,11 +85,14 @@ def do_one_watch(sym, wtype, report):
     wp = WatchPoint(sym, wtype)
     gdb.execute("c")
     report_str = "%s for %s (%s)" % (report, sym, wp.sym.value())
+
+    print "XXX: %s" % (report_str)
+
     if wp.hit_count > 0:
-        report_or_exit(True, report_str)
+        report(True, report_str)
         wp.delete()
     else:
-        report_or_exit(False, report_str)
+        report(False, report_str)
 
 
 def check_watches(sym_name):
@@ -115,7 +117,7 @@ class CatchBreakpoint(gdb.Breakpoint):
         end_pc = gdb.parse_and_eval ('$pc')
         print "CB: %s == %s" % (end_pc, self.sym.value())
         if end_pc == sym.value():
-            report_or_exit(False, "Hit final catchpoint")
+            report(False, "Hit final catchpoint")
 
 
 def run_test():
@@ -127,11 +129,11 @@ def run_test():
         if check_step():
             step_ok += 1
 
-    report_or_exit(step_ok == 3, "single step in boot code")
+    report(step_ok == 3, "single step in boot code")
 
     print "Checking HW breakpoint works"
     break_ok = check_hbreak("kernel_init")
-    report_or_exit(break_ok, "hbreak @ kernel_init")
+    report(break_ok, "hbreak @ kernel_init")
 
     # Can't set this up until we are in the kernel proper
     # if we make it to run_init_process we've over-run and
@@ -142,7 +144,7 @@ def run_test():
 
     print "Checking Normal breakpoint works"
     break_ok = check_break("wait_for_completion")
-    report_or_exit(break_ok, "break @ wait_for_completion")
+    report(break_ok, "break @ wait_for_completion")
 
     print "Checking watchpoint works"
     check_watches("system_state")
@@ -151,6 +153,7 @@ def run_test():
 # This runs as the script it sourced (via -x)
 #
 
+#try:
 print "Connecting to remote"
 gdb.execute("target remote localhost:1234")
 
@@ -158,8 +161,13 @@ gdb.execute("target remote localhost:1234")
 gdb.execute("set pagination off")
 gdb.execute("set confirm off")
 
+# Run the actual tests
 run_test()
 
-# If we haven't exited yet then we passed all the tests
-gdb.execute("kill")
-exit(0)
+#except(e):
+#    print "GDB Exception while running test %s" % (e)
+#    failcount += 1
+
+# Finally kill the inferior and exit gdb with a count of failures
+#gdb.execute("kill")
+#exit(failcount)
