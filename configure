@@ -424,6 +424,12 @@ if test "$debug_info" = "yes"; then
     LDFLAGS="-g $LDFLAGS"
 fi
 
+# Thread sanitizer support
+if test "${EXTRA_CFLAGS#*sanitize=thread}" != "sanitizie=thread"
+then
+    QEMU_CFLAGS="-D__USING_TSAN $QEMU_CFLAGS"
+fi
+
 # make source path absolute
 source_path=`cd "$source_path"; pwd`
 
