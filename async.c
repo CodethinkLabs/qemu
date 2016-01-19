@@ -165,7 +165,7 @@ aio_compute_timeout(AioContext *ctx)
     QEMUBH *bh;
 
     for (bh = ctx->first_bh; bh; bh = bh->next) {
-        if (!bh->deleted && bh->scheduled) {
+        if (!bh->deleted && atomic_read(&bh->scheduled)) {
             if (bh->idle) {
                 /* idle bottom halves will be polled at least
                  * every 10ms */
@@ -286,7 +286,7 @@ void aio_notify(AioContext *ctx)
      * with atomic_or in aio_ctx_prepare or atomic_add in aio_poll.
      */
     smp_mb();
-    if (ctx->notify_me) {
+    if (atomic_read(&ctx->notify_me)) {
         event_notifier_set(&ctx->notifier);
         atomic_mb_set(&ctx->notified, true);
     }
