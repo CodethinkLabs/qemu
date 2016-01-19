@@ -299,12 +299,14 @@ static void phys_page_compact(PhysPageEntry *lp, Node *nodes, unsigned long *com
     }
 }
 
-static void phys_page_compact_all(AddressSpaceDispatch *d, int nodes_nb)
+static void phys_page_compact_all(AddressSpaceDispatch *d, unsigned int nodes_nb)
 {
-    DECLARE_BITMAP(compacted, nodes_nb);
+    if (nodes_nb > 0) {
+        DECLARE_BITMAP(compacted, nodes_nb);
 
-    if (d->phys_map.skip) {
-        phys_page_compact(&d->phys_map, d->map.nodes, compacted);
+        if (d->phys_map.skip) {
+            phys_page_compact(&d->phys_map, d->map.nodes, compacted);
+        }
     }
 }
 
