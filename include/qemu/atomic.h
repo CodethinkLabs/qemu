@@ -85,8 +85,7 @@
 
 #endif /* _ARCH_PPC */
 
-#endif /* C11 atomics */
-
+#endif /* __ATOMIC_RELAXED (C11 atomics) */
 /*
  * For (host) platforms we don't have explicit barrier definitions
  * for, we use the gcc __sync_synchronize() primitive to generate a
@@ -127,12 +126,32 @@
 #endif
 #endif
 
+/* While aligned reads should be atomic we need to use an explicit
+ * builtin when running under ThreadSanitizer so it knows what is
+ * safely atomic.
+ */
 #ifndef atomic_read
+#ifdef __USING_TSAN
+#define atomic_read(ptr)                          \
+    ({                                            \
+    typeof(*ptr) _val;                            \
+     __atomic_load(ptr, &_val, __ATOMIC_CONSUME); \
+    _val;                                         \
+    })
+#else
 #define atomic_read(ptr)       (*(__typeof__(*ptr) volatile*) (ptr))
+#endif
 #endif
 
 #ifndef atomic_set
+#if __USING_TSAN
+#define atomic_set(ptr, i)  do {                        \
+    typeof(*ptr) _val = (i);                            \
+    __atomic_store(ptr, &_val, __ATOMIC_RELEASE);       \
+} while(0)
+#else
 #define atomic_set(ptr, i)     ((*(__typeof__(*ptr) volatile*) (ptr)) = (i))
+#endif
 #endif
 
 /**
@@ -238,6 +257,8 @@
 #if defined(__clang__)
 #define atomic_xchg(ptr, i)    __sync_swap(ptr, i)
 #elif defined(__ATOMIC_SEQ_CST)
+/* Q: does __ATOMIC_SEQ_CST imply memory ordering with non-atomic
+ * operations? */
 #define atomic_xchg(ptr, i)    ({                           \
     typeof(*ptr) _new = (i), _old;                          \
     __atomic_exchange(ptr, &_new, &_old, __ATOMIC_SEQ_CST); \
